@@ -33,6 +33,15 @@ namespace Aspnet1
         protected global::System.Web.UI.WebControls.Label errorlbl;
 
         /// <summary>
+        /// movieIdlbl control.
+        /// </summary>
+        /// <remarks>
+        /// Auto-generated field.
+        /// To modify move field declaration from designer file to code-behind file.
+        /// </remarks>
+        protected global::System.Web.UI.WebControls.Label movieIdlbl;
+
+        /// <summary>
         /// Label2 control.
         /// </summary>
         /// <remarks>
@@ -114,22 +123,13 @@ namespace Aspnet1
         protected global::System.Web.UI.WebControls.Button saveBtn;
 
         /// <summary>
-        /// editBtn control.
+        /// updateBtn control.
         /// </summary>
         /// <remarks>
         /// Auto-generated field.
         /// To modify move field declaration from designer file to code-behind file.
         /// </remarks>
-        protected global::System.Web.UI.WebControls.Button editBtn;
-
-        /// <summary>
-        /// deleteBtn control.
-        /// </summary>
-        /// <remarks>
-        /// Auto-generated field.
-        /// To modify move field declaration from designer file to code-behind file.
-        /// </remarks>
-        protected global::System.Web.UI.WebControls.Button deleteBtn;
+        protected global::System.Web.UI.WebControls.Button updateBtn;
 
         /// <summary>
         /// movieGridView control.
