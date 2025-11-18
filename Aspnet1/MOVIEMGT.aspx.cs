@@ -2,7 +2,7 @@
 using System.Configuration;
 using System.Data;
 using System.Data.SqlClient;
-using System.Web.Globalization;
+using System.IO;
 using System.Web.UI.WebControls;
 
 namespace Aspnet1
@@ -19,31 +19,38 @@ namespace Aspnet1
             }
         }
 
-
-
         protected void saveBox_Click(object sender, EventArgs e)
         {
             try
             {
-                string sqlQuery = "INSERT INTO Movies (name, director, description, rating) VALUES (@name, @director, @description, @rating)";
-                SqlCommand cmd = new SqlCommand(sqlQuery, conn);
-                cmd.Parameters.AddWithValue("@name", nameBox.Text.Trim());
-                cmd.Parameters.AddWithValue("@director", directorBox.Text.Trim());
-                cmd.Parameters.AddWithValue("@description", descriptionBox.Text.Trim());
-                cmd.Parameters.AddWithValue("@rating", ratingBox.Text.Trim());
-
-                if (conn.State == ConnectionState.Closed)
-                    conn.Open();
-
-                int row = cmd.ExecuteNonQuery();
-
-                if (row > 0)
+                if (string.IsNullOrWhiteSpace(nameBox.Text) || string.IsNullOrWhiteSpace(ratingBox.Text))
                 {
-                    messagelbl.Visible = true;
-                    messagelbl.Text = "Movie saved successfully!";
-                    errorlbl.Visible = false;
-                    LoadMovies();
-                    ClearFields();
+                    errorlbl.Visible = true;
+                    errorlbl.Text = "Name and Rating are required fields.";
+                    return;
+                }
+
+                string sqlQuery = "INSERT INTO Movies (name, director, description, rating) VALUES (@name, @director, @description, @rating)";
+                using (SqlCommand cmd = new SqlCommand(sqlQuery, conn))
+                {
+                    cmd.Parameters.AddWithValue("@name", nameBox.Text.Trim());
+                    cmd.Parameters.AddWithValue("@director", directorBox.Text.Trim());
+                    cmd.Parameters.AddWithValue("@description", descriptionBox.Text.Trim());
+                    cmd.Parameters.AddWithValue("@rating", ratingBox.Text.Trim());
+
+                    if (conn.State == ConnectionState.Closed)
+                        conn.Open();
+
+                    int row = cmd.ExecuteNonQuery();
+
+                    if (row > 0)
+                    {
+                        messagelbl.Visible = true;
+                        messagelbl.Text = "Movie saved successfully!";
+                        errorlbl.Visible = false;
+                        LoadMovies();
+                        ClearFields();
+                    }
                 }
             }
             catch (Exception ex)
@@ -53,20 +60,139 @@ namespace Aspnet1
             }
             finally
             {
-                conn.Close();
+                if (conn.State == ConnectionState.Open)
+                    conn.Close();
             }
         }
 
-
-
-        protected void editBtn_Click(object sender, EventArgs e)
+        protected void importBtn_Click(object sender, EventArgs e)
         {
+            if (fileUpload.HasFile)
+            {
+                try
+                {
+                    string fileName = Path.GetFileName(fileUpload.FileName);
+                    string fileExtension = Path.GetExtension(fileName).ToLower();
 
+                    if (fileExtension == ".csv")
+                    {
+                        ImportFromCSV(fileUpload.FileContent);
+                    }
+                    else
+                    {
+                        ShowError("Please select a CSV file only.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ShowError("Error importing CSV file: " + ex.Message);
+                }
+            }
+            else
+            {
+                ShowError("Please select a CSV file to import.");
+            }
         }
 
-        protected void deleteBtn_Click(object sender, EventArgs e)
+        private void ImportFromCSV(Stream fileStream)
         {
+            int importedCount = 0;
+            int errorCount = 0;
 
+            using (StreamReader reader = new StreamReader(fileStream))
+            {
+                string line;
+                bool isFirstLine = true;
+
+                while ((line = reader.ReadLine()) != null)
+                {
+                    if (isFirstLine)
+                    {
+                        isFirstLine = false;
+                        continue;
+                    }
+
+                    string[] values = line.Split(',');
+
+                    if (values.Length >= 4)
+                    {
+                        try
+                        {
+                            string name = values[0].Trim();
+                            string director = values[1].Trim();
+                            string description = values[2].Trim();
+                            string ratingStr = values[3].Trim();
+
+                            if (!string.IsNullOrEmpty(name))
+                            {
+                                string sqlQuery = @"INSERT INTO Movies (name, director, description, rating) 
+                                                  VALUES (@name, @director, @description, @rating)";
+
+                                using (SqlCommand cmd = new SqlCommand(sqlQuery, conn))
+                                {
+                                    cmd.Parameters.AddWithValue("@name", name);
+                                    cmd.Parameters.AddWithValue("@director", director);
+                                    cmd.Parameters.AddWithValue("@description", description);
+
+                                    if (decimal.TryParse(ratingStr, out decimal rating))
+                                        cmd.Parameters.AddWithValue("@rating", rating);
+                                    else
+                                        cmd.Parameters.AddWithValue("@rating", DBNull.Value);
+
+                                    if (conn.State == ConnectionState.Closed)
+                                        conn.Open();
+
+                                    cmd.ExecuteNonQuery();
+                                    importedCount++;
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            errorCount++;
+                        }
+                    }
+                }
+            }
+
+            if (errorCount == 0)
+            {
+                ShowSuccess($"Import completed successfully! {importedCount} movies imported.");
+            }
+            else
+            {
+                ShowSuccess($"Import completed with {errorCount} errors. {importedCount} movies imported successfully.");
+            }
+
+            LoadMovies();
+        }
+
+        protected void clearBtn_Click(object sender, EventArgs e)
+        {
+            ClearFields();
+            ShowSuccess("Form cleared successfully!");
+        }
+
+        protected void refreshBtn_Click(object sender, EventArgs e)
+        {
+            LoadMovies();
+            ShowSuccess("Movie list refreshed!");
+        }
+
+        private void ShowSuccess(string message)
+        {
+            messagelbl.Text = message;
+            messagelbl.CssClass = "alert alert-success";
+            messagelbl.Visible = true;
+            errorlbl.Visible = false;
+        }
+
+        private void ShowError(string message)
+        {
+            errorlbl.Text = message;
+            errorlbl.CssClass = "alert alert-danger";
+            errorlbl.Visible = true;
+            messagelbl.Visible = false;
         }
 
         private void ClearFields()
@@ -75,24 +201,22 @@ namespace Aspnet1
             directorBox.Text = "";
             descriptionBox.Text = "";
             ratingBox.Text = "";
-            ViewState["MovieID"] = null;
+            movieIdlbl.Text = "";
         }
-
-
-        //LOAD MOVIES 
-
 
         private void LoadMovies()
         {
             try
             {
-                SqlCommand cmd = new SqlCommand("SELECT * FROM Movies", conn);
-                SqlDataAdapter da = new SqlDataAdapter(cmd);
-                DataTable dt = new DataTable();
-                da.Fill(dt);
+                using (SqlCommand cmd = new SqlCommand("SELECT * FROM Movies", conn))
+                {
+                    SqlDataAdapter da = new SqlDataAdapter(cmd);
+                    DataTable dt = new DataTable();
+                    da.Fill(dt);
 
-                movieGridView.DataSource = dt;
-                movieGridView.DataBind();
+                    movieGridView.DataSource = dt;
+                    movieGridView.DataBind();
+                }
             }
             catch (Exception ex)
             {
@@ -101,75 +225,70 @@ namespace Aspnet1
             }
         }
 
-
-     
         protected void movieGridView_RowCommand(object sender, GridViewCommandEventArgs e)
         {
-            // edit command
-
             if (e.CommandName == "EditView")
             {
                 string movieId = e.CommandArgument.ToString();
 
-                //display movie details in form
-
-
                 try
                 {
-                    SqlCommand cmd = new SqlCommand("SELECT * FROM Movies WHERE MovieId=@movieId", conn);
-                    cmd.Parameters.AddWithValue("@movieId", movieId);
-                    if (conn.State == ConnectionState.Closed)
-                        conn.Open();
-
-                    SqlDataReader reader;
-                    reader = cmd.ExecuteReader();
-
-                    if (reader.HasRows)
+                    using (SqlCommand cmd = new SqlCommand("SELECT * FROM Movies WHERE MovieId=@movieId", conn))
                     {
-                        while (reader.Read())
+                        cmd.Parameters.AddWithValue("@movieId", movieId);
+
+                        if (conn.State == ConnectionState.Closed)
+                            conn.Open();
+
+                        using (SqlDataReader reader = cmd.ExecuteReader())
                         {
-                            movieIdlbl.Text = reader["MovieId"].ToString();
-                            nameBox.Text = reader["name"].ToString();
-                            directorBox.Text = reader["director"].ToString();
-                            descriptionBox.Text = reader["description"].ToString();
-                            ratingBox.Text = reader["rating"].ToString();
+                            if (reader.HasRows)
+                            {
+                                while (reader.Read())
+                                {
+                                    movieIdlbl.Text = reader["MovieId"].ToString();
+                                    nameBox.Text = reader["name"].ToString();
+                                    directorBox.Text = reader["director"].ToString();
+                                    descriptionBox.Text = reader["description"].ToString();
+                                    ratingBox.Text = reader["rating"].ToString();
+                                }
+                            }
                         }
                     }
-
-
                 }
                 catch (Exception ex)
                 {
-                    errorlbl.Text = "Error loading movies: " + ex.Message;
+                    errorlbl.Text = "Error loading movie details: " + ex.Message;
                     errorlbl.Visible = true;
                 }
-
-
-
-
-
+                finally
+                {
+                    if (conn.State == ConnectionState.Open)
+                        conn.Close();
+                }
             }
-
-
-            //delete command
 
             if (e.CommandName == "DeleteMovie")
             {
                 try
                 {
                     string movieId = e.CommandArgument.ToString();
-                    SqlCommand cmd = new SqlCommand("DELETE FROM Movies WHERE MovieId=@movieId", conn);
-                    cmd.Parameters.AddWithValue("@movieId", movieId);
-                    if (conn.State == ConnectionState.Closed)
-                        conn.Open();
-                    int row = cmd.ExecuteNonQuery();
-                    if (row > 0)
+                    using (SqlCommand cmd = new SqlCommand("DELETE FROM Movies WHERE MovieId=@movieId", conn))
                     {
-                        messagelbl.Visible = true;
-                        messagelbl.Text = "Movie deleted successfully!";
-                        errorlbl.Visible = false;
-                        LoadMovies();
-                        ClearFields();
+                        cmd.Parameters.AddWithValue("@movieId", movieId);
+
+                        if (conn.State == ConnectionState.Closed)
+                            conn.Open();
+
+                        int row = cmd.ExecuteNonQuery();
+                        if (row > 0)
+                        {
+                            messagelbl.Visible = true;
+                            messagelbl.Text = "Movie deleted successfully!";
+                            errorlbl.Visible = false;
+                            LoadMovies();
+                            ClearFields();
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -177,43 +296,59 @@ namespace Aspnet1
                     errorlbl.Text = "Error deleting movie: " + ex.Message;
                     errorlbl.Visible = true;
                 }
-
+                finally
+                {
+                    if (conn.State == ConnectionState.Open)
+                        conn.Close();
+                }
             }
-
-
-
-
         }
 
         protected void updateBtn_Click(object sender, EventArgs e)
         {
             try
             {
-
-                
-
-
-                
-
-                string sqlQuery = "UPDATE Movies SET name=@name, director=@director, description=@description, rating=@rating WHERE MovieId=@movieId";
-                SqlCommand cmd = new SqlCommand(sqlQuery, conn);
-                cmd.Parameters.AddWithValue("@name", nameBox.Text.Trim());
-                cmd.Parameters.AddWithValue("@director", directorBox.Text.Trim());
-                cmd.Parameters.AddWithValue("@description", descriptionBox.Text.Trim());
-                cmd.Parameters.AddWithValue("@rating", ratingBox.Text.Trim());
-                cmd.Parameters.AddWithValue("@movieId", movieIdlbl.Text.Trim());
-                if (conn.State == ConnectionState.Closed)
-                    conn.Open();
-                int row = cmd.ExecuteNonQuery();
-                if (row > 0)
+                if (string.IsNullOrWhiteSpace(movieIdlbl.Text))
                 {
-                    messagelbl.Visible = true;
-                    messagelbl.Text = "Movie updated successfully!";
-                    errorlbl.Visible = false;
-                    LoadMovies();
-                    ClearFields();
+                    errorlbl.Visible = true;
+                    errorlbl.Text = "No movie selected for update.";
+                    return;
                 }
 
+                if (string.IsNullOrWhiteSpace(nameBox.Text) || string.IsNullOrWhiteSpace(ratingBox.Text))
+                {
+                    errorlbl.Visible = true;
+                    errorlbl.Text = "Name and Rating are required fields.";
+                    return;
+                }
+
+                string sqlQuery = "UPDATE Movies SET name=@name, director=@director, description=@description, rating=@rating WHERE MovieId=@movieId";
+                using (SqlCommand cmd = new SqlCommand(sqlQuery, conn))
+                {
+                    cmd.Parameters.AddWithValue("@name", nameBox.Text.Trim());
+                    cmd.Parameters.AddWithValue("@director", directorBox.Text.Trim());
+                    cmd.Parameters.AddWithValue("@description", descriptionBox.Text.Trim());
+                    cmd.Parameters.AddWithValue("@rating", ratingBox.Text.Trim());
+                    cmd.Parameters.AddWithValue("@movieId", movieIdlbl.Text.Trim());
+
+                    if (conn.State == ConnectionState.Closed)
+                        conn.Open();
+
+                    int row = cmd.ExecuteNonQuery();
+                    if (row > 0)
+                    {
+                        messagelbl.Visible = true;
+                        messagelbl.Text = "Movie updated successfully!";
+                        errorlbl.Visible = false;
+                        LoadMovies();
+                        ClearFields();
+                    }
+                    else
+                    {
+                        errorlbl.Visible = true;
+                        errorlbl.Text = "Movie not found or no changes made.";
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -222,10 +357,9 @@ namespace Aspnet1
             }
             finally
             {
-                conn.Close();
+                if (conn.State == ConnectionState.Open)
+                    conn.Close();
             }
         }
-
-       
     }
 }
